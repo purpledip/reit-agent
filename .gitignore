@@ -1,9 +1,6 @@
 # Secrets — never commit
 .env
 
-# Runtime data — keep locally but don't push
-purchases.csv
-
 # Python
 __pycache__/
 *.py[cod]
@@ -22,3 +19,6 @@ Thumbs.db
 
 # Streamlit
 .streamlit/
+
+# NOTE: purchases.csv is intentionally NOT ignored.
+# GitHub Actions commits it after each run to persist your trade history.

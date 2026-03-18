@@ -11,9 +11,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
+    # Required so the job can commit purchases.csv back to the repo
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -24,27 +30,21 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Restore purchases.csv from previous runs (persisted as artifact)
-      - name: Restore purchase log
-        uses: actions/cache@v4
-        with:
-          path: purchases.csv
-          key: purchases-log-${{ github.run_id }}
-          restore-keys: purchases-log-
-
-      - name: Run agent (single-shot mode)
+      - name: Run agent
         env:
-          BOT_TOKEN:    ${{ secrets.BOT_TOKEN }}
-          CHAT_ID:      ${{ secrets.CHAT_ID }}
-          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
-          MONTHLY_CAP:  "5000"
-          MIN_ORDER:    "500"
+          BOT_TOKEN:     ${{ secrets.BOT_TOKEN }}
+          CHAT_ID:       ${{ secrets.CHAT_ID }}
+          NEWS_API_KEY:  ${{ secrets.NEWS_API_KEY }}
+          MONTHLY_CAP:   "5000"
+          MIN_ORDER:     "500"
           BUY_THRESHOLD: "4"
         run: python run_once.py
 
-      # Save updated purchases.csv for next run
-      - name: Save purchase log
-        uses: actions/cache@v4
-        with:
-          path: purchases.csv
-          key: purchases-log-${{ github.run_id }}
+      # Commit purchases.csv back to repo so it persists across runs
+      - name: Save purchase log to repo
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add purchases.csv
+          git diff --staged --quiet || git commit -m "chore: update purchases log [$(date +'%Y-%m-%d')]"
+          git push
