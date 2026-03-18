@@ -241,10 +241,18 @@ def _build_message(allocation, embassy, biret, macro_articles) -> str:
         ]
         return "\n".join(lines)
 
+    deploy_pct = allocation.get("deploy_pct", 0)
+    days_left  = allocation.get("days_left", "?")
+    total_day  = allocation["embassy_amt"] + allocation["biret_amt"]
+
     lines = ["📈 *REIT Buy Alert*\n", budget_line]
+    lines.append(
+        f"📅 {days_left} trading days left  ·  "
+        f"deploying {deploy_pct}% of remaining today (₹{total_day:,})\n"
+    )
 
     lines.append(
-        f"\n*EMBASSY* {s_e}  ₹{embassy['price']:.2f}  score {embassy.get('score', 0)}/10"
+        f"*EMBASSY* {s_e}  ₹{embassy['price']:.2f}  score {embassy.get('score', 0)}/10"
     )
     for h in embassy.get("headlines", [])[:3]:
         lines.append(f"  • {h[:80]}")
@@ -255,16 +263,17 @@ def _build_message(allocation, embassy, biret, macro_articles) -> str:
     for h in biret.get("headlines", [])[:3]:
         lines.append(f"  • {h[:80]}")
 
-    lines.append(f"\n💰 *Recommended allocation*")
+    lines.append("\n💰 *Today's allocation*")
     lines.append(f"_{allocation['reason']}_")
     if allocation["embassy_amt"] > 0:
         lines.append(f"  → Buy EMBASSY: ₹{allocation['embassy_amt']:,}")
     else:
-        lines.append(f"  → EMBASSY: skip")
+        lines.append("  → EMBASSY: skip")
     if allocation["biret_amt"] > 0:
         lines.append(f"  → Buy BIRET:   ₹{allocation['biret_amt']:,}")
     else:
-        lines.append(f"  → BIRET: skip")
+        lines.append("  → BIRET: skip")
+    lines.append(f"  → Preserving ₹{b['remaining'] - total_day:,.0f} for better signals later")
 
     if macro_articles:
         lines.append("\n🌐 *Macro news*")
