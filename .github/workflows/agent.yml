@@ -6,12 +6,14 @@ on:
     - cron: "0 13 * * 1-5"
   workflow_dispatch:   # allows manual trigger from GitHub UI
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   run-agent:
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
-    # Required so the job can commit purchases.csv back to the repo
     permissions:
       contents: write
 
@@ -40,11 +42,19 @@ jobs:
           BUY_THRESHOLD: "4"
         run: python run_once.py
 
-      # Commit purchases.csv back to repo so it persists across runs
       - name: Save purchase log to repo
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add purchases.csv
-          git diff --staged --quiet || git commit -m "chore: update purchases log [$(date +'%Y-%m-%d')]"
-          git push
+          # Stage purchases.csv only if it exists
+          if [ -f purchases.csv ]; then
+            git add purchases.csv
+          fi
+          # Only commit + push if there is actually something staged
+          if git diff --staged --quiet; then
+            echo "No changes to commit — skipping push."
+          else
+            git commit -m "chore: update purchases log [$(date +'%Y-%m-%d')]"
+            git pull --rebase origin main
+            git push origin main
+          fi

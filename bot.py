@@ -6,6 +6,7 @@ updates purchases.csv only after user confirms, and provides /status + /history 
 import datetime
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.error import BadRequest
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -22,7 +23,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── In-memory store for the pending recommendation ───────────────────────────
-# Cleared after user taps a button. Only one recommendation is active at a time.
 _pending: dict = {}
 
 
@@ -78,18 +78,29 @@ async def handle_ack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     """Handle the user tapping one of the four inline buttons."""
     global _pending
     query = update.callback_query
-    await query.answer()  # removes the spinner
+
+    # Always answer the callback to remove the loading spinner on the button
+    try:
+        await query.answer()
+    except BadRequest:
+        pass  # already answered — safe to ignore
 
     if not _pending:
-        await query.edit_message_reply_markup(reply_markup=None)
+        # Buttons are stale (e.g. bot restarted) — remove them cleanly
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except BadRequest:
+            pass
         await query.message.reply_text(
-            "⚠️ No pending recommendation found — it may have already been acknowledged."
+            "⚠️ No pending recommendation found — the bot may have restarted. "
+            "Wait for the next daily signal."
         )
         return
 
     p      = _pending.copy()
     choice = query.data
 
+    # ── Log the action ────────────────────────────────────────────────────────
     if choice == "bought_both":
         log_purchase(p["embassy_amt"], p["biret_amt"], p["embassy_price"], p["biret_price"])
         actual_e, actual_b = p["embassy_amt"], p["biret_amt"]
@@ -107,15 +118,21 @@ async def handle_ack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         actual_e, actual_b = 0, 0
 
     else:
-        await query.message.reply_text("Unknown action.")
+        await query.message.reply_text("⚠️ Unknown action — please wait for the next signal.")
         return
 
+    # Clear pending state
     _pending = {}
 
-    # Remove buttons from original message
-    await query.edit_message_reply_markup(reply_markup=None)
+    # ── Remove inline buttons from the original message ───────────────────────
+    # Wrapped in try/except — Telegram raises BadRequest if buttons are already
+    # gone (e.g. duplicate tap, network retry). Safe to ignore.
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except BadRequest as e:
+        logger.warning(f"Could not remove buttons: {e}")
 
-    # Send confirmation
+    # ── Send confirmation reply ───────────────────────────────────────────────
     conf = _build_confirmation(choice, actual_e, actual_b, p)
     await query.message.reply_text(conf, parse_mode="Markdown")
 
@@ -126,7 +143,7 @@ async def handle_ack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/status — live budget summary for the current month."""
-    b = budget_summary()
+    b    = budget_summary()
     bars = int(b["pct_used"] / 10)
     bar  = "█" * bars + "░" * (10 - bars)
 
@@ -140,7 +157,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         f"Remaining:         ₹{b['remaining']:,.0f}\n"
     )
     if b["remaining"] < MIN_ORDER:
-        msg += f"\n⚠️ _Below minimum order. Agent will pause until next month._"
+        msg += "\n⚠️ _Below minimum order. Agent will pause until next month._"
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
@@ -160,25 +177,23 @@ async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await update.message.reply_text("No transactions logged yet.")
         return
 
-    recent = rows[-15:][::-1]  # last 15, newest first
+    recent = rows[-15:][::-1]   # last 15, newest first
     lines  = ["📋 *Last 15 transactions*\n"]
 
     for r in recent:
-        date   = r.get("date", "?")
-        e_amt  = float(r.get("embassy_amt", 0))
-        b_amt  = float(r.get("biret_amt",   0))
-        skip   = r.get("skipped", "no") == "yes"
+        date_str = r.get("date", "?")
+        e_amt    = float(r.get("embassy_amt", 0))
+        b_amt    = float(r.get("biret_amt",   0))
+        skipped  = r.get("skipped", "no") == "yes"
 
-        if skip or (e_amt == 0 and b_amt == 0):
-            lines.append(f"`{date}` — skipped")
+        if skipped or (e_amt == 0 and b_amt == 0):
+            lines.append(f"`{date_str}` — ⏭ skipped")
         else:
             parts = []
-            if e_amt > 0:
-                parts.append(f"EMBASSY ₹{e_amt:.0f}")
-            if b_amt > 0:
-                parts.append(f"BIRET ₹{b_amt:.0f}")
+            if e_amt > 0: parts.append(f"EMBASSY ₹{e_amt:.0f}")
+            if b_amt > 0: parts.append(f"BIRET ₹{b_amt:.0f}")
             total = e_amt + b_amt
-            lines.append(f"`{date}` — {' + '.join(parts)}  *(₹{total:.0f})*")
+            lines.append(f"`{date_str}` — {' + '.join(parts)}  *(₹{total:.0f})*")
 
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
@@ -207,9 +222,9 @@ def _sentiment_emoji(score: int) -> str:
 
 
 def _build_message(allocation, embassy, biret, macro_articles) -> str:
-    b    = budget_summary()
-    s_e  = _sentiment_emoji(embassy.get("sentiment", 0))
-    s_b  = _sentiment_emoji(biret.get("sentiment", 0))
+    b   = budget_summary()
+    s_e = _sentiment_emoji(embassy.get("sentiment", 0))
+    s_b = _sentiment_emoji(biret.get("sentiment", 0))
 
     budget_line = (
         f"💼 Budget: ₹{b['total_spent']:.0f} used / ₹{b['cap']:,}  "
@@ -228,21 +243,18 @@ def _build_message(allocation, embassy, biret, macro_articles) -> str:
 
     lines = ["📈 *REIT Buy Alert*\n", budget_line]
 
-    # EMBASSY block
     lines.append(
         f"\n*EMBASSY* {s_e}  ₹{embassy['price']:.2f}  score {embassy.get('score', 0)}/10"
     )
     for h in embassy.get("headlines", [])[:3]:
         lines.append(f"  • {h[:80]}")
 
-    # BIRET block
     lines.append(
         f"\n*BIRET* {s_b}  ₹{biret['price']:.2f}  score {biret.get('score', 0)}/10"
     )
     for h in biret.get("headlines", [])[:3]:
         lines.append(f"  • {h[:80]}")
 
-    # Allocation
     lines.append(f"\n💰 *Recommended allocation*")
     lines.append(f"_{allocation['reason']}_")
     if allocation["embassy_amt"] > 0:
@@ -254,7 +266,6 @@ def _build_message(allocation, embassy, biret, macro_articles) -> str:
     else:
         lines.append(f"  → BIRET: skip")
 
-    # Macro news
     if macro_articles:
         lines.append("\n🌐 *Macro news*")
         for a in macro_articles[:2]:
@@ -270,16 +281,12 @@ def _build_keyboard(allocation: dict) -> list:
 
     if e > 0 and b > 0:
         return [
-            [
-                InlineKeyboardButton(f"✅ Bought both (₹{e+b:,})",  callback_data="bought_both"),
-            ],
+            [InlineKeyboardButton(f"✅ Bought both (₹{e+b:,})", callback_data="bought_both")],
             [
                 InlineKeyboardButton(f"✅ EMBASSY only ₹{e:,}", callback_data="bought_embassy"),
                 InlineKeyboardButton(f"✅ BIRET only ₹{b:,}",   callback_data="bought_biret"),
             ],
-            [
-                InlineKeyboardButton("⏭ Skipped both", callback_data="skipped_both"),
-            ],
+            [InlineKeyboardButton("⏭ Skipped both", callback_data="skipped_both")],
         ]
     elif e > 0:
         return [[
@@ -298,7 +305,7 @@ def _build_confirmation(choice: str, actual_e: int, actual_b: int, p: dict) -> s
 
     if choice == "skipped_both":
         return (
-            f"⏭ *Skipped — nothing logged.*\n\n"
+            f"⏭ *Skipped — logged as skipped.*\n\n"
             f"Monthly spend stays at ₹{b['total_spent']:,.0f}.\n"
             f"₹{b['remaining']:,.0f} still available this month."
         )
