@@ -1,0 +1,9 @@
+yfinance
+pandas
+numpy
+schedule
+requests
+python-telegram-bot[job-queue]
+streamlit
+plotly
+python-dotenv

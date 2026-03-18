@@ -1,0 +1,50 @@
+name: REIT Agent — Daily Run
+
+on:
+  schedule:
+    # 13:00 UTC = 18:30 IST, weekdays only
+    - cron: "0 13 * * 1-5"
+  workflow_dispatch:   # allows manual trigger from GitHub UI
+
+jobs:
+  run-agent:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Restore purchases.csv from previous runs (persisted as artifact)
+      - name: Restore purchase log
+        uses: actions/cache@v4
+        with:
+          path: purchases.csv
+          key: purchases-log-${{ github.run_id }}
+          restore-keys: purchases-log-
+
+      - name: Run agent (single-shot mode)
+        env:
+          BOT_TOKEN:    ${{ secrets.BOT_TOKEN }}
+          CHAT_ID:      ${{ secrets.CHAT_ID }}
+          NEWS_API_KEY: ${{ secrets.NEWS_API_KEY }}
+          MONTHLY_CAP:  "5000"
+          MIN_ORDER:    "500"
+          BUY_THRESHOLD: "4"
+        run: python run_once.py
+
+      # Save updated purchases.csv for next run
+      - name: Save purchase log
+        uses: actions/cache@v4
+        with:
+          path: purchases.csv
+          key: purchases-log-${{ github.run_id }}
