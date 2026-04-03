@@ -20,5 +20,5 @@ Thumbs.db
 # Streamlit
 .streamlit/
 
-# NOTE: purchases.csv is intentionally NOT ignored.
-# GitHub Actions commits it after each run to persist your trade history.
+# Purchase log — data lives on Google Sheets now
+purchases.csv

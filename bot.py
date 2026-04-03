@@ -1,7 +1,7 @@
 """
 bot.py — Telegram bot
 Sends recommendations with inline buttons, handles buy/skip acknowledgements,
-updates purchases.csv only after user confirms, and provides /status + /history commands.
+updates the Google Sheet only after user confirms, and provides /status + /history commands.
 """
 import datetime
 import logging
@@ -163,19 +163,14 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/history — last 15 transactions."""
-    import csv, os
-    from config import LOG_FILE
+    from gdrive import read_purchases
 
-    if not os.path.exists(LOG_FILE):
+    df = read_purchases()
+    if df.empty:
         await update.message.reply_text("No transactions logged yet.")
         return
 
-    with open(LOG_FILE, "r", newline="") as f:
-        rows = list(csv.DictReader(f))
-
-    if not rows:
-        await update.message.reply_text("No transactions logged yet.")
-        return
+    rows = df.to_dict("records")
 
     recent = rows[-15:][::-1]   # last 15, newest first
     lines  = ["📋 *Last 15 transactions*\n"]

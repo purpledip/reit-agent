@@ -15,13 +15,18 @@ jobs:
     timeout-minutes: 10
 
     permissions:
-      contents: write
+      contents: read
+      id-token: write        # required for WIF OIDC token exchange
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (WIF)
+        uses: google-github-actions/auth@v2
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,27 +39,11 @@ jobs:
 
       - name: Run agent
         env:
-          BOT_TOKEN:     ${{ secrets.BOT_TOKEN }}
-          CHAT_ID:       ${{ secrets.CHAT_ID }}
-          NEWS_API_KEY:  ${{ secrets.NEWS_API_KEY }}
-          MONTHLY_CAP:   "5000"
-          MIN_ORDER:     "500"
-          BUY_THRESHOLD: "4"
+          BOT_TOKEN:       ${{ secrets.BOT_TOKEN }}
+          CHAT_ID:         ${{ secrets.CHAT_ID }}
+          NEWS_API_KEY:    ${{ secrets.NEWS_API_KEY }}
+          GDRIVE_SHEET_ID: ${{ secrets.GDRIVE_SHEET_ID }}
+          MONTHLY_CAP:     "5000"
+          MIN_ORDER:       "500"
+          BUY_THRESHOLD:   "4"
         run: python run_once.py
-
-      - name: Save purchase log to repo
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          # Stage purchases.csv only if it exists
-          if [ -f purchases.csv ]; then
-            git add purchases.csv
-          fi
-          # Only commit + push if there is actually something staged
-          if git diff --staged --quiet; then
-            echo "No changes to commit — skipping push."
-          else
-            git commit -m "chore: update purchases log [$(date +'%Y-%m-%d')]"
-            git pull --rebase origin main
-            git push origin main
-          fi

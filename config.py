@@ -37,5 +37,5 @@ BUY_THRESHOLD = int(os.getenv("BUY_THRESHOLD",  "4"))
 RUN_HOUR_UTC   = int(os.getenv("RUN_HOUR_UTC",   "13"))
 RUN_MINUTE_UTC = int(os.getenv("RUN_MINUTE_UTC", "0"))
 
-# ── Files ─────────────────────────────────────────────────────────────────────
-LOG_FILE = "purchases.csv"
+# ── Google Drive ──────────────────────────────────────────────────────────────
+GDRIVE_SHEET_ID = os.getenv("GDRIVE_SHEET_ID")

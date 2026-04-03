@@ -1,11 +1,10 @@
 """
 budget.py — Monthly ₹5000 cap tracking
-Reads and writes purchases.csv. Imported by signals.py, agent.py, bot.py, dashboard.py.
+Reads and writes purchases via Google Sheets. Imported by signals.py, agent.py, bot.py, dashboard.py.
 """
-import csv
-import os
 from datetime import datetime
-from config import LOG_FILE, MONTHLY_CAP, MIN_ORDER
+from config import MONTHLY_CAP, MIN_ORDER
+from gdrive import read_purchases, append_purchase
 
 
 def get_month_key(dt: datetime = None) -> str:
@@ -18,15 +17,13 @@ def get_spent_this_month() -> dict:
     Returns {"EMBASSY": float, "BIRET": float}
     """
     spent = {"EMBASSY": 0.0, "BIRET": 0.0}
-    if not os.path.exists(LOG_FILE):
+    df = read_purchases()
+    if df.empty:
         return spent
     month = get_month_key()
-    with open(LOG_FILE, "r", newline="") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if row.get("month") == month:
-                spent["EMBASSY"] += float(row.get("embassy_amt", 0))
-                spent["BIRET"]   += float(row.get("biret_amt", 0))
+    month_data = df[df["month"] == month] if "month" in df.columns else df[0:0]
+    spent["EMBASSY"] = float(month_data["embassy_amt"].sum()) if "embassy_amt" in month_data.columns else 0.0
+    spent["BIRET"]   = float(month_data["biret_amt"].sum())   if "biret_amt" in month_data.columns else 0.0
     return spent
 
 
@@ -44,29 +41,16 @@ def log_purchase(
     skipped: bool = False,
 ) -> None:
     """
-    Append one row to purchases.csv.
+    Append one row to the Google Sheet.
     Always logs (including skips) so the dashboard has a full activity record.
     """
-    file_exists = os.path.exists(LOG_FILE)
-    fieldnames  = [
-        "date", "month",
-        "embassy_amt", "embassy_price",
-        "biret_amt",   "biret_price",
-        "skipped",
-    ]
-    with open(LOG_FILE, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow({
-            "date":          datetime.today().strftime("%Y-%m-%d"),
-            "month":         get_month_key(),
-            "embassy_amt":   round(embassy_amt, 2),
-            "embassy_price": round(embassy_price, 2),
-            "biret_amt":     round(biret_amt, 2),
-            "biret_price":   round(biret_price, 2),
-            "skipped":       "yes" if skipped else "no",
-        })
+    append_purchase(
+        embassy_amt=embassy_amt,
+        biret_amt=biret_amt,
+        embassy_price=embassy_price,
+        biret_price=biret_price,
+        skipped=skipped,
+    )
 
 
 def budget_summary() -> dict:

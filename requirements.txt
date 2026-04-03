@@ -7,3 +7,5 @@ python-telegram-bot[job-queue]
 streamlit
 plotly
 python-dotenv
+gspread
+google-auth

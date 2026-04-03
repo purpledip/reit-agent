@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import csv, os
 from datetime import datetime
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -164,27 +163,14 @@ div[data-testid="metric-container"] {
 """, unsafe_allow_html=True)
 
 
-# ── Helper: load purchases.csv ────────────────────────────────────────────────
-LOG_FILE = "purchases.csv"
+# ── Helper: load purchases from Google Sheets ─────────────────────────────────
+from gdrive import read_purchases
+
 MONTHLY_CAP = 5000
 
 @st.cache_data(ttl=60)
 def load_purchases():
-    if not os.path.exists(LOG_FILE):
-        return pd.DataFrame()
-
-    with open(LOG_FILE, "r") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
-    if not rows:
-        return pd.DataFrame()
-    df = pd.DataFrame(rows)
-    df["embassy_amt"]   = df["embassy_amt"].astype(float)
-    df["biret_amt"]     = df["biret_amt"].astype(float)
-    df["embassy_price"] = df["embassy_price"].astype(float)
-    df["biret_price"]   = df["biret_price"].astype(float)
-    df["date"]          = pd.to_datetime(df["date"])
-    return df
+    return read_purchases()
 
 
 @st.cache_data(ttl=300)
